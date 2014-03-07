@@ -1,28 +1,19 @@
-#!/usr/bin/ruby
+#!/usr/local/bin/ruby
+require 'app_conf'
 require 'appscript'
 require 'rubygems'
 require 'net/http'
 require 'json'
 
-#JIRA Configuration
-JIRA_BASE_URL = 'https://www.yoursite.com/jira'
-USERNAME = 'devon'
-PASSWORD = 'mypassword'
-
-#OmniFocus Configuration
-DEFAULT_CONTEXT="Jira"
-DEFAULT_PROJECT="Work"
-FLAGGED=true
-
 # This method gets all issues that are assigned to your USERNAME and whos status isn't Closed or Resolved.  It returns a Hash where the key is the Jira Ticket Key and the value is the Jira Ticket Summary.
 def get_issues
   jira_issues = Hash.new
   # This is the REST URL that will be hit.  Change the jql query if you want to adjust the query used here
-  uri = URI(JIRA_BASE_URL + '/rest/api/2/search?jql=assignee+%3D+currentUser()+AND+status+not+in+(Closed,+Resolved)') 
+  uri = URI(@config[:jira_base_url] + '/rest/api/2/search?jql=assignee+%3D+currentUser()+AND+status+not+in+(Closed,Done)') 
 
   Net::HTTP.start(uri.hostname, uri.port, :use_ssl => uri.scheme == 'https') do |http|
-    request = Net::HTTP::Get.new(uri)
-    request.basic_auth USERNAME, PASSWORD
+    request = Net::HTTP::Get.new(uri.request_uri)
+    request.basic_auth @config[:username], @config[:password]
     response = http.request request
     # If the response was good, then grab the data
     if response.code =~ /20[0-9]{1}/
@@ -32,7 +23,7 @@ def get_issues
           jira_issues[jira_id] = item["fields"]["summary"]
         end    
     else
-     raise StandardError, "Unsuccessful response code " + response.code + " for issue " + issue
+     raise StandardError, "Unsuccessful response code " + response.code
     end
   end
   return jira_issues
@@ -41,7 +32,7 @@ end
 # This method adds a new Task to OmniFocus based on the new_task_properties passed in
 def add_task(omnifocus_document, new_task_properties)
   # If there is a passed in OF project name, get the actual project object
-  if new_task_properties['project']
+  if new_task_properties["project"]
     proj_name = new_task_properties["project"]
     proj = omnifocus_document.flattened_tasks[proj_name]
   end
@@ -92,21 +83,30 @@ def add_jira_tickets_to_omnifocus ()
   omnifocus_app = Appscript.app.by_name("OmniFocus")
   omnifocus_document = omnifocus_app.default_document
 
+  # Build a hash of existing issues in the default context
+  ctx = omnifocus_document.flattened_contexts[@config[:default_context]]
+  existing_tasks = {}
+  ctx.tasks.get.each do |task|
+    existing_tasks[task.name.get] = task.note.get
+  end
+
   # Iterate through resulting issues.
   results.each do |jira_id, summary|
     # Create the task name by adding the ticket summary to the jira ticket key
     task_name = "#{jira_id}: #{summary}"
     # Create the task notes with the Jira Ticket URL
-    task_notes = "#{JIRA_BASE_URL}/browse/#{jira_id}"
+    task_notes = "#{@config[:jira_base_url]}/browse/#{jira_id}"
+
+    next if existing_tasks.has_key?(task_name) 
 
     # Build properties for the Task
     @props = {}
     @props['name'] = task_name
-    @props['project'] = DEFAULT_PROJECT
-    @props['context'] = DEFAULT_CONTEXT
+    @props['project'] = @config[:default_project]
+    @props['context'] = @config[:default_context]
     @props['note'] = task_notes
-    @props['flagged'] = FLAGGED
-    add_task(omnifocus_document, @props)
+    @props['flagged'] = @config[:flagged]
+    Add_task(omnifocus_document, @props)
   end
 end
 
@@ -114,18 +114,19 @@ def mark_resolved_jira_tickets_as_complete_in_omnifocus ()
   # get tasks from the project
   omnifocus_app = Appscript.app.by_name("OmniFocus")
   omnifocus_document = omnifocus_app.default_document
-  ctx = omnifocus_document.flattened_contexts[DEFAULT_CONTEXT]
+  ctx = omnifocus_document.flattened_contexts[@config[:default_context]]
   ctx.tasks.get.find.each do |task|
-    if task.note.get.match(JIRA_BASE_URL)
+    if task.note.get.match(@config[:jira_base_url])
       # try to parse out jira id      
       full_url= task.note.get
-      jira_id=full_url.sub(JIRA_BASE_URL+"/browse/","")
+      jira_id=full_url.sub(@config[:jira_base_url]+"/browse/","")
       # check status of the jira
-      uri = URI(JIRA_BASE_URL + '/rest/api/2/issue/' + jira_id)
+      uri = URI(@config[:jira_base_url] + '/rest/api/2/issue/' + jira_id)
 
       Net::HTTP.start(uri.hostname, uri.port, :use_ssl => uri.scheme == 'https') do |http|
-        request = Net::HTTP::Get.new(uri)
-        request.basic_auth USERNAME, PASSWORD
+        #http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+        request = Net::HTTP::Get.new(uri.request_uri)
+        request.basic_auth @config[:username], @config[:password]
         response = http.request request
 
         if response.code =~ /20[0-9]{1}/
@@ -148,6 +149,10 @@ def app_is_running(app_name)
 end
 
 def main ()
+   config_dir = File.dirname(__FILE__)
+   config_file = config_dir + "/config.yml"
+   @config = AppConf.new
+   @config.load(config_file)
    if app_is_running("OmniFocus")
 	  add_jira_tickets_to_omnifocus
 	  mark_resolved_jira_tickets_as_complete_in_omnifocus

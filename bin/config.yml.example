@@ -1,0 +1,9 @@
+#JIRA Configuration
+jira_base_url:   "https://jira.example.com/"
+username:        "user"
+password:        "sekrit"
+
+#OmniFocus Configuration
+default_context: "Computer"
+default_project: "Jira Tickets"
+flagged:         true
