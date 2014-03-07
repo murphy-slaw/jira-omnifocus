@@ -37,12 +37,6 @@ def add_task(omnifocus_document, new_task_properties)
     proj = omnifocus_document.flattened_tasks[proj_name]
   end
 
-  # Check to see if there's already an OF Task with that name in the referenced Project
-  # If there is, just stop.
-  name   = new_task_properties["name"]
-  exists = proj.tasks.get.find { |t| t.name.get == name }
-  return false if exists
-
   # If there is a passed in OF context name, get the actual context object
   if new_task_properties['context']
     ctx_name = new_task_properties["context"]
@@ -83,12 +77,7 @@ def add_jira_tickets_to_omnifocus ()
   omnifocus_app = Appscript.app.by_name("OmniFocus")
   omnifocus_document = omnifocus_app.default_document
 
-  # Build a hash of existing issues in the default context
-  ctx = omnifocus_document.flattened_contexts[@config[:default_context]]
-  existing_tasks = {}
-  ctx.tasks.get.each do |task|
-    existing_tasks[task.name.get] = task.note.get
-  end
+  existing_tasks = omnifocus_document.flattened_tasks
 
   # Iterate through resulting issues.
   results.each do |jira_id, summary|
@@ -97,7 +86,8 @@ def add_jira_tickets_to_omnifocus ()
     # Create the task notes with the Jira Ticket URL
     task_notes = "#{@config[:jira_base_url]}/browse/#{jira_id}"
 
-    next if existing_tasks.has_key?(task_name) 
+    exists = existing_tasks.get.find { |t| t.name.get == task_name }
+    next if exists
 
     # Build properties for the Task
     @props = {}
@@ -106,7 +96,7 @@ def add_jira_tickets_to_omnifocus ()
     @props['context'] = @config[:default_context]
     @props['note'] = task_notes
     @props['flagged'] = @config[:flagged]
-    Add_task(omnifocus_document, @props)
+    add_task(omnifocus_document, @props)
   end
 end
 
