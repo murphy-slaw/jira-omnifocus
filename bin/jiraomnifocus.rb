@@ -4,6 +4,7 @@ require 'appscript'
 require 'rubygems'
 require 'net/http'
 require 'json'
+require 'date'
 
 # This method gets all issues that are assigned to your USERNAME and whos status isn't Closed or Resolved.  It returns a Hash where the key is the Jira Ticket Key and the value is the Jira Ticket Summary.
 def get_issues
@@ -20,7 +21,7 @@ def get_issues
         data = JSON.parse(response.body)
         data["issues"].each do |item|
           jira_id = item["key"]
-          jira_issues[jira_id] = item["fields"]["summary"]
+          jira_issues[jira_id] = item["fields"]
         end    
     else
      raise StandardError, "Unsuccessful response code " + response.code
@@ -80,9 +81,9 @@ def add_jira_tickets_to_omnifocus ()
   existing_tasks = omnifocus_document.flattened_tasks
 
   # Iterate through resulting issues.
-  results.each do |jira_id, summary|
+  results.each do |jira_id, item|
     # Create the task name by adding the ticket summary to the jira ticket key
-    task_name = "#{jira_id}: #{summary}"
+    task_name = "#{jira_id}: #{item['summary']}"
     # Create the task notes with the Jira Ticket URL
     task_notes = "#{@config[:jira_base_url]}/browse/#{jira_id}"
 
@@ -96,6 +97,8 @@ def add_jira_tickets_to_omnifocus ()
     @props['context'] = @config[:default_context]
     @props['note'] = task_notes
     @props['flagged'] = @config[:flagged]
+    @props['creation_date'] = Date::parse(item['created'])
+    @props['due_date'] = Date::parse(item['duedate'])
     add_task(omnifocus_document, @props)
   end
 end
